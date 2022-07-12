@@ -1,0 +1,83 @@
+apiVersion: tekton.dev/v1alpha1
+kind: Pipeline
+metadata:
+  name: maven-build-deploy
+spec:
+  workspaces:
+  - name: local-maven-repo
+  params:
+  - name: deployment-name
+    type: string
+    description: name of the deployment to be patched
+  - name: git-url
+    type: string
+    description: url of the git repo for the code of deployment
+  - name: git-revision
+    type: string
+    description: revision to be used from repo of the code for deployment
+    default: "main"
+  - name: IMAGE
+    type: string
+    description: image to be build from the code
+  tasks:
+  - name: fetch-repository
+    taskRef:
+      name: git-clone
+      kind: ClusterTask
+    workspaces:
+    - name: output
+      workspace: local-maven-repo
+    params:
+    - name: url
+      value: $(params.git-url)
+    - name: subdirectory
+      value: ""
+    - name: deleteExisting
+      value: "true"
+    - name: revision
+      value: $(params.git-revision)
+  - name: build
+    taskRef:
+      name: maven
+      kind: ClusterTask
+    params:
+    - name: GOALS
+      value: ["package"]
+    workspaces:
+    - name: source
+      workspace: local-maven-repo
+    - name: maven-settings
+      workspace: local-maven-repo
+    runAfter:
+    - fetch-repository
+  - name: int-test
+    taskRef:
+      name: maven
+      kind: ClusterTask
+    runAfter: ["build"]
+    params:
+    - name: GOALS
+      value: ["verify"]
+    workspaces:
+    - name: source
+      workspace: local-maven-repo
+    - name: maven-settings
+      workspace: local-maven-repo
+  - name: apply-manifests
+    taskRef:
+      name: apply-manifests
+    workspaces:
+    - name: source
+      workspace: local-maven-repo
+    runAfter:
+    - build
+  - name: update-deployment
+    taskRef:
+      name: update-deployment
+    params:
+    - name: deployment
+      value: $(params.deployment-name)
+    - name: IMAGE
+      value: $(params.IMAGE)
+    runAfter:
+    - apply-manifests

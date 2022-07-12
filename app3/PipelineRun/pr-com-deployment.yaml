@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1alpha1
+kind: PipelineRun
+metadata:
+  name: petclinic-pipelinerun-deploy
+spec:
+  pipelineRef:
+    name: maven-build-deploy
+  params:
+  - name: deployment-name
+    value: spring-petclinic
+  - name: git-url
+    value: https://github.com/pecorawal/spring-petclinic.git
+  - name: IMAGE
+    value: image-registry.openshift-image-registry.svc:5000/petclinic-test/spring-petclinic
+  workspaces:
+  - name: local-maven-repo
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 500Mi
