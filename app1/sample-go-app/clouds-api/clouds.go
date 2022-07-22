@@ -155,5 +155,6 @@ func initCloudsObject() {
 		Cloud{Id: "3", Title: "GCP", Desc: "Google Cloud Platform", Content: "Google Cloud Platform, offered by Google, is a suite of cloud computing services that runs on the same infrastructure that Google uses internally for its end-user products, such as Google Search, Gmail, Google Drive, and YouTube."},
 		Cloud{Id: "4", Title: "IBM Cloud", Desc: "IBM Cloud", Content: "IBM cloud computing is a set of cloud computing services for business offered by the information technology company IBM CO."},
 		Cloud{Id: "5", Title: "My Own Cloud", Desc: "IBM Cloud", Content: "IBM cloud computing is a set of cloud computing services for business offered by the information technology company IBM CO."},
+		Cloud{Id: "6", Title: "Mi CLoud", Desc: "Test Cloud", Content: "IBM cloud computing is a set of cloud computing services for business offered by the information technology company IBM CO."},
 	}
 }
