@@ -153,6 +153,6 @@ func initCloudsObject() {
 		Cloud{Id: "1", Title: "AWS", Desc: "Amazon Web Services", Content: "Amazon Web Services, Inc. is a subsidiary of Amazon providing on-demand cloud computing platforms and APIs to individuals, companies, and governments, on a metered pay-as-you-go basis."},
 		Cloud{Id: "2", Title: "Azure", Desc: "Microsoft Azure", Content: "Microsoft Azure, often referred to as Azure, is a cloud computing service operated by Microsoft for application management via Microsoft-managed data centers."},
 		Cloud{Id: "3", Title: "GCP", Desc: "Google Cloud Platform", Content: "Google Cloud Platform, offered by Google, is a suite of cloud computing services that runs on the same infrastructure that Google uses internally for its end-user products, such as Google Search, Gmail, Google Drive, and YouTube."},
-		Cloud{Id: "4", Title: "IBM Cloud", Desc: "IBM Cloud", Content: "IBM cloud computing is a set of cloud computing services for business offered by the information technology company IBM CO."}
+		Cloud{Id: "4", Title: "IBM Cloud", Desc: "IBM Cloud", Content: "IBM cloud computing is a set of cloud computing services for business offered by the information technology company IBM CO."},
 	}
 }
