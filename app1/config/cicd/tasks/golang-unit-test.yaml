@@ -8,7 +8,7 @@ spec:
   params:
     - name: context
       description: path to the directory to use as context.
-      default: "./sample-go-app/clouds-api"
+      default: "./app1/sample-go-app/clouds-api"
     - name: version
       description: golang version to use for tests
       default: "latest"      

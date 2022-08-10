@@ -7,11 +7,11 @@ spec:
     name: build-app
   params:
   - name: git-url
-    value: https://github.com/PacktPublishing/Openshift-Multi-Cluster-management.git
+    value: https://github.com/pecorawal/ocp-pipelines.git
   - name: git-revision
-    value: dev
+    value: main
   - name: IMAGE
-    value: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api:v1.0   
+    value: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api:1.0   
   workspaces:
   - name: shared-workspace
     volumeClaimTemplate:
