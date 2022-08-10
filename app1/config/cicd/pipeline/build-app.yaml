@@ -36,19 +36,6 @@ spec:
       value: "true"
     - name: revision
       value: $(params.git-revision)
-  - name: golang-unit-test
-    taskRef:
-      name: golang-unit-test
-    params:
-    - name: context
-      value: $(params.CONTEXT)
-    - name: module-name
-      value: "clouds"
-    workspaces:
-    - name: source
-      workspace: shared-workspace      
-    runAfter:
-    - fetch-repository   
   - name: build-image
     taskRef:
       name: buildah
@@ -62,4 +49,4 @@ spec:
     - name: source
       workspace: shared-workspace
     runAfter:
-    - golang-unit-test
+    - fetch-repository

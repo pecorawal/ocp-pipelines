@@ -9,7 +9,7 @@ spec:
   - name: git-url
     value: https://github.com/pecorawal/ocp-pipelines.git
   - name: git-revision
-    value: main
+    value: dev
   - name: IMAGE
     value: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api:1.0   
   workspaces:
