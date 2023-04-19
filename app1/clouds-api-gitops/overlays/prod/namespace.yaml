@@ -4,3 +4,4 @@ metadata:
   name: clouds-api-prod
   labels:
     argocd.argoproj.io/managed-by: openshift-gitops  
+
