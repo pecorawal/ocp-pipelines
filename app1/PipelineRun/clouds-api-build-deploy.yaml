@@ -11,7 +11,11 @@ spec:
   - name: git-url
     value: https://github.com/pecorawal/ocp-pipelines.git
   - name: IMAGE
+<<<<<<< HEAD
     value: image-registry.openshift-image-registry.svc:5000/app1-dev/clouds-api
+=======
+    value: image-registry.openshift-image-registry.svc:5000/pipeline1/clouds-api
+>>>>>>> 01234e5 (pipeline1)
   workspaces:
   - name: shared-workspace
     volumeClaimTemplate:
