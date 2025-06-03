@@ -25,4 +25,4 @@ metadata:
   name: github-secret
 type: Opaque
 stringData:
-  secretToken: "tekton"
+  secretToken: "96537ffe05a90e62"
