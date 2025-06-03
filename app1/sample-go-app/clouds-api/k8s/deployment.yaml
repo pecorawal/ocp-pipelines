@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   labels:
     app: clouds-api
-  name: clouds-api
+  name: app1
 spec:
   replicas: 1
   selector:
