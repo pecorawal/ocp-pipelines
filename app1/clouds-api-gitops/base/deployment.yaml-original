@@ -15,7 +15,7 @@ spec:
         app: clouds-api
     spec:
       containers:
-        - image: clouds-api:latest
+        - image: quay.io/gfontana/clouds-api:latest
           imagePullPolicy: Always
           name: clouds-api
           ports:
