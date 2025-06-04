@@ -13,6 +13,6 @@ resources:
   - namespace.yaml
 
 images:
-- name: quay.io/gfontana/clouds-api
+- name: image-registry.openshift-image-registry.svc:5000/app1-dev/clouds-api
   newName: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api
-  newTag: v1.0
+  newTag: v1.0-qa
