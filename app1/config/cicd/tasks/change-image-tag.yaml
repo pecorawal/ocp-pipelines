@@ -9,7 +9,7 @@ spec:
     - name: manifest
       description: The manifest file to apply
       type: string
-      default: "./app1/clouds-api-gitops/overlays/qa/kustomization.yaml"
+      default: "./app1/clouds-api-gitops/overlays/dev/kustomization.yaml"
     - name: new-tag
       description: The manifest file to apply
       type: string      
