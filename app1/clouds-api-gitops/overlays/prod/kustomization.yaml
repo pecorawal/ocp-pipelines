@@ -15,4 +15,4 @@ resources:
 images:
 - name: image-registry.openshift-image-registry.svc:5000/app1-dev/clouds-api
   newName: image-registry.openshift-image-registry.svc:5000/cicd/clouds-api
-  newTag: v1.0-release
+  newTag: v1.0-release-202504006-1430BRT
