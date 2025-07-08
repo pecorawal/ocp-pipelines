@@ -22,3 +22,9 @@ spec:
               "image":"$(inputs.params.IMAGE)"
             }]
           }}}}'
+	  patched_at_timestamp=`date +%s`
+          oc patch deployment $(inputs.params.deployment) --patch='{"spec":{"template":{"metadata":{
+            "labels":{
+              "patched_at": '\"$patched_at_timestamp\"'
+            }
+          }}}}'
