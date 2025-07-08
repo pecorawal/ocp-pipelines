@@ -1,0 +1,23 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-deploy-api-pipelinerun
+spec:
+  pipelineRef:
+    name: docker-build-and-deploy-pr
+  params:
+  - name: GIT_REPO
+    value: https://github.com/pecorawal/cloudsapi-4-ocppipelines.git
+  - name: GIT_REVISION
+    value: main
+  - name: IMAGE_NAME
+    value: image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/clouds-api
+  workspaces:
+  - name: workspace
+    volumeClaimTemplate:
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 500Mi
