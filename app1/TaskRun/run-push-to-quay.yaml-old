@@ -1,0 +1,19 @@
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  annotations:
+  name: run-push-to-quay
+  namespace: clouds-build
+spec:
+  params:
+    - name: OCP_INTERNAL_IMAGE_NAME
+      value: 'clouds-api:latest'
+    - name: QUAY_ORG_REPO
+      value: saa-latam/clouds-api
+    - name: QUAY_IMAGE_TAG
+      value: latest
+  serviceAccountName: pipeline
+  taskRef:
+    kind: Task
+    name: push-to-quay
+  timeout: 1h0m0s

@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-deployer-role
+  namespace: clouds-pec-test # IMPORTANT: This Role is for the target namespace
+rules:
+  - apiGroups: [""] # Core API group for Services
+    resources: ["services"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["apps"] # API group for Deployments
+    resources: ["deployments"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["route.openshift.io"] # API group for Routes
+    resources: ["routes"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # Add more rules as needed for other resources your application might create:
+  # - apiGroups: [""]
+  #   resources: ["configmaps", "secrets"]
+  #   verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["image.openshift.io"] # For OpenShift ImageStreams
+    resources: ["imagestreams"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # - apiGroups: ["build.openshift.io"] # For OpenShift BuildConfigs and Builds
+  #   resources: ["buildconfigs", "builds"]
+  #   verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # - apiGroups: [""]
+  #   resources: ["persistentvolumeclaims"]
+  #   verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]

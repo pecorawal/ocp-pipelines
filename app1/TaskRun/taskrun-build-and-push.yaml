@@ -1,0 +1,33 @@
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  namespace: clouds-build
+  name: taskrun-build-and-push-to-quay
+spec:
+  # Referencia a Task que você quer executar
+  taskRef:
+    name: build-and-push-to-quay
+
+  # Define os valores para os parâmetros da Task
+  params:
+    - name: GIT_REPO_URL
+      value: 'https://github.com/pecorawal/cloudsapi-4-ocppipelines.git' # <--- SUBSTITUA PELA URL DO SEU REPOSITÓRIO
+    - name: GIT_REVISION
+      value: 'main' # <--- SUBSTITUA PELA BRANCH OU COMMIT QUE VOCÊ QUER USAR
+    - name: OCP_IMAGE_NAME
+      value: 'clouds-api' # <--- NOME DA IMAGEM NO REGISTRO INTERNO DO OPENSHIFT
+    - name: QUAY_ORG_REPO
+      value: 'saa-latam/clouds-api' # <--- SUBSTITUA PELA SUA ORG/REPOSITÓRIO NO QUAY.IO
+    - name: QUAY_IMAGE_TAG
+      value: 'latest' # <--- SUBSTITUA PELA TAG DA IMAGEM NO QUAY.IO
+
+  # Define o volume para o workspace 'source'
+  workspaces:
+    - name: source # Este nome deve corresponder ao nome do workspace na Task
+      volumeClaimTemplate: # <--- Cria um PVC temporário para esta execução
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi # Tamanho do volume para o código-fonte e build

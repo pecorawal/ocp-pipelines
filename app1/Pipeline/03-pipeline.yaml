@@ -1,0 +1,155 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: docker-build-and-deploy-pr-new
+  namespace: clouds-build
+spec:
+  params:
+    - name: IMAGE_NAME
+      type: string
+    - name: GIT_REPO
+      type: string
+    - name: GIT_REVISION
+      type: string
+    - name: QUAY_ORG_REPO # New parameter for the target Quay.io repository
+      description: The Quay.io organization and repository (e.g., saa-latam/my-app)
+      type: string
+      default: saa-latam/my-app # Set a default value if you want
+    - name: QUAY_IMAGE_TAG # New parameter for the target Quay.io image tag
+      description: The tag for the image on Quay.io
+      type: string
+      default: latest # Set a default value if you want
+
+  tasks:
+    - name: fetch-repository
+      params:
+        - name: URL
+          value: $(params.GIT_REPO)
+        - name: REVISION
+          value: $(params.GIT_REVISION)
+        - name: SUBDIRECTORY
+          value: ''
+        - name: DELETE_EXISTING
+          value: 'true'
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: output
+          workspace: workspace
+
+    - name: build
+      params:
+        - name: IMAGE
+          # The image name in OpenShift's internal registry.
+          # e.g., image-registry.openshift-image-registry.svc:5000/clouds-build/$(params.IMAGE_NAME)
+          value: $(params.IMAGE_NAME)
+        - name: TLS_VERIFY
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: source
+          workspace: workspace
+
+    # --- NEW TASK: Push Image to Quay.io ---
+    - name: push-to-quay
+      runAfter:
+        - build # This task runs after the 'build' task completes successfully
+      params:
+        - name: OCP_INTERNAL_IMAGE_NAME # Pass the built image name from buildah
+          value: $(tasks.build.results.IMAGE_DIGEST) # buildah typically outputs IMAGE_DIGEST or IMAGE_URL
+                                                      # You might need to adjust this depending on your buildah version
+                                                      # and what it exposes. Often it's just the full image URL.
+                                                      # If IMAGE_DIGEST is not enough, you can construct the full URL
+                                                      # or use a different result from buildah.
+                                                      # For simplicity, if buildah's IMAGE param means the final
+                                                      # image name in internal registry, then use:
+                                                      # value: image-registry.openshift-image-registry.svc:5000/clouds-build/$(params.IMAGE_NAME)
+          # Let's refine this: Buildah's IMAGE parameter refers to the output.
+          # We'll re-construct the full internal image path.
+      taskSpec: # Define the task inline, or create a separate Task resource and use taskRef
+        steps:
+          - name: push
+            # Use an image with 'podman' or 'skopeo' and 'oc' client
+            image: quay.io/openshift/origin-cli:latest # A good choice for OpenShift CLI + container tools
+            script: |
+              #!/usr/bin/env bash
+              set -eux # Exit on error, echo commands
+
+              # --- Configuration ---
+              # Source image details (from OpenShift internal registry)
+              OCP_NAMESPACE="$(context.pipeline.namespace)" # Get current namespace
+              OCP_IMAGE_NAME="$(params.IMAGE_NAME)" # The base name provided to buildah
+              OCP_IMAGE_TAG="latest" # Assuming buildah pushed 'latest' or use actual tag if available
+
+              # Destination Quay.io repository details
+              QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)" # e.g., saa-latam/my-app
+              QUAY_IMAGE_TAG="$(params.QUAY_IMAGE_TAG)" # e.g., latest
+
+              # Get OpenShift's internal registry hostname dynamically
+              # This robustly fetches the route or falls back to the service if route not exposed
+              OPENSHIFT_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}' 2>/dev/null || echo "image-registry.openshift-image-registry.svc:5000")
+
+              SOURCE_IMAGE="$OPENSHIFT_REGISTRY/$OCP_NAMESPACE/$OCP_IMAGE_NAME:$OCP_IMAGE_TAG"
+              DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$QUAY_IMAGE_TAG"
+
+              echo "Attempting to push $SOURCE_IMAGE to $DESTINATION_IMAGE"
+
+              # 1. Configure Podman/Skopeo to use Quay.io credentials
+              # The 'quay-robot-creds' secret is mounted to /var/run/secrets/quay-creds/
+              # The .dockerconfigjson key contains the necessary authentication JSON.
+              mkdir -p /tekton/home/.docker # Tekton typically sets HOME to /tekton/home
+              cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+              chmod 600 /tekton/home/.docker/config.json # Secure permissions
+
+              export DOCKER_CONFIG=/tekton/home/.docker # Ensure podman/skopeo uses this config
+
+              # 2. Push the image using skopeo (more efficient for registry-to-registry copy)
+              # skopeo copy --insecure-policy --tls-verify=false is NOT recommended for production
+              # but useful if registry certificates are not properly trusted by default.
+              # Ideal: Ensure OCP internal registry's CA is trusted by your base image.
+              skopeo copy "docker://$SOURCE_IMAGE" "docker://$DESTINATION_IMAGE"
+              echo "Image successfully pushed to Quay.io!"
+              volumeMounts:
+                - name: quay-credentials-volume # Mount the secret
+                  mountPath: /var/run/secrets/quay-creds # A custom mount path for the secret
+                  readOnly: true
+              volumes: # Define the volume at the TaskSpec level
+                - name: quay-credentials-volume
+                  secret:
+                    secretName: quay-robot-creds # Name of your Quay.io credentials secret
+
+    - name: deploy # Your existing deploy task
+      params:
+        - name: SCRIPT
+          value: |
+            oc new-app --image $(params.IMAGE_NAME)
+      runAfter:
+        - push-to-quay # Run after the new push task
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: openshift-client
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+  workspaces:
+    - name: workspace

@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-deployer-rb
+  namespace: clouds-pec-test # IMPORTANT: This RoleBinding is for the target namespace
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops # This is the namespace where the SA itself resides
+roleRef:
+  kind: Role
+  name: argocd-deployer-role # Refers to the Role created above
+  apiGroup: rbac.authorization.k8s.io

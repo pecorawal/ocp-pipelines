@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: clouds-pec-test-app-imagestream-puller-rb
+  namespace: clouds-build # This RoleBinding grants permissions within the clouds-build namespace
+subjects:
+  - kind: ServiceAccount
+    name: default # Replace 'default' with your app's specific service account if applicable
+    namespace: clouds-pec-test # The namespace where the service account (and its pods) exists
+roleRef:
+  kind: Role
+  name: imagestream-puller-role # Refers to the Role created above
+  apiGroup: rbac.authorization.k8s.io

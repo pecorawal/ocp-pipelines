@@ -1,0 +1,104 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-and-push-to-quay
+  namespace: clouds-build
+  annotations:
+    # Esta anotação é necessária para que o pod da Task possa usar a SCC 'privileged',
+    # o que é um requisito para a Task 'buildah'.
+    tekton.dev/scc: privileged
+spec:
+  # Define os parâmetros de entrada da Task
+  params:
+    - name: GIT_REPO_URL
+      description: A URL do repositório Git a ser clonado.
+      type: string
+    - name: GIT_REVISION
+      description: A branch ou commit a ser clonado.
+      type: string
+    - name: OCP_IMAGE_NAME
+      description: O nome da imagem a ser construída no OpenShift exemplo, clouds-api
+      type: string
+    - name: QUAY_ORG_REPO
+      description: A organização e o repositório no Quay.io - saa-latam/clouds-api.
+      type: string
+    - name: QUAY_IMAGE_TAG
+      description: A tag para a imagem no Quay.io.
+      type: string
+
+  # Define os volumes que serão anexados ao pod da Task
+  volumes:
+    - name: quay-credentials-volume
+      secret:
+        secretName: quay-robot-creds
+    - name: git-credentials-volume
+      secret:
+        secretName: git-credentials
+
+  # Define os workspaces que a Task irá usar
+  workspaces:
+    - name: source
+      description: O workspace onde o código-fonte será clonado.
+
+  # Define os passos da Task
+  steps:
+    - name: git-clone
+      image: 'registry.redhat.io/openshift-pipelines/pipelines-git-base:latest'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+        # Configura as credenciais do Git (se o repositório for privado)
+        mkdir -p /tekton/home/.git-credentials
+        cp /var/run/secrets/git-creds/credentials /tekton/home/.git-credentials/credentials
+        chmod 600 /tekton/home/.git-credentials/credentials
+        git config --global credential.helper 'store --file=/tekton/home/.git-credentials/credentials'
+
+        # Clona o repositório no workspace
+        git clone "$(params.GIT_REPO_URL)" "$(workspaces.source.path)"
+        cd "$(workspaces.source.path)"
+        git checkout "$(params.GIT_REVISION)"
+      volumeMounts:
+        - name: git-credentials-volume
+          mountPath: /var/run/secrets/git-creds
+          readOnly: true
+
+    - name: build-and-push
+      # Usa uma imagem com 'buildah' e 'skopeo' instalados
+      image: 'registry.redhat.io/rhel8/buildah:latest'
+      securityContext:
+        privileged: true # <--- REQUERIDO PARA O BUILDAH
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        # --- Configuração ---
+        OCP_NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+        SOURCE_IMAGE_REF="$(params.OCP_IMAGE_NAME):latest"
+        QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)"
+        QUAY_IMAGE_TAG="$(params.QUAY_IMAGE_TAG)"
+
+        OPENSHIFT_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}' 2>/dev/null || echo "image-registry.openshift-image-registry.svc:5000")
+
+        SOURCE_IMAGE="$OPENSHIFT_REGISTRY/$OCP_NAMESPACE/$SOURCE_IMAGE_REF"
+        DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$QUAY_IMAGE_TAG"
+
+        # 1. Constrói a imagem com o Buildah
+        # O buildah usa o workspace 'source' como diretório de contexto
+        buildah bud --format=docker -t "$SOURCE_IMAGE" "$(workspaces.source.path)"
+
+        echo "Imagem $SOURCE_IMAGE construída com sucesso."
+
+        # 2. Configura as credenciais do Quay.io para o Skopeo
+        mkdir -p /tekton/home/.docker
+        cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+        chmod 600 /tekton/home/.docker/config.json
+        export DOCKER_CONFIG="/tekton/home/.docker"
+
+        # 3. Empurra a imagem para o Quay.io usando o Skopeo
+        skopeo copy "docker://$SOURCE_IMAGE" "docker://$DESTINATION_IMAGE"
+
+        echo "Imagem empurrada com sucesso para o Quay.io!"
+      volumeMounts:
+        - name: quay-credentials-volume
+          mountPath: /var/run/secrets/quay-creds
+          readOnly: true

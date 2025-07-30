@@ -1,0 +1,162 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: docker-build-and-deploy-pr-new
+  namespace: clouds-build
+spec:
+  params:
+    - name: IMAGE_NAME
+      type: string
+    - name: GIT_REPO
+      type: string
+    - name: GIT_REVISION
+      type: string
+  tasks:
+    - name: fetch-repository
+      params:
+        - name: URL
+          value: $(params.GIT_REPO)
+        - name: REVISION
+          value: $(params.GIT_REVISION)
+        - name: SUBDIRECTORY
+          value: ''
+        - name: DELETE_EXISTING
+          value: 'true'
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: output
+          workspace: git-source
+    - name: build
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE_NAME)
+        - name: TLS_VERIFY
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: output
+          workspace: git-source
+    #
+    # use podman to push
+    #
+    - name: podman
+      runAfter:
+        - build
+      workspaces:
+        - workspace: git-source
+          name: output
+        - workspace: registry-credentials
+          name: dockerconfig
+      params:
+        - name: image
+          value: $(params.IMAGE_NAME)
+        - name: commit
+          value: $(tasks.git-clone.results.commit)
+      taskRef:
+        name: podman
+
+    # update deployment so argo can sense and flag out-of-sync
+    #     
+    - name: cd-update
+      runAfter:
+        - podman
+      workspaces:
+        - workspace: git-credentials 
+          name: gitssh   
+      params:
+        - name: version
+          value: $(tasks.podman.results.image-tag)
+        - name: cd-git-repo
+          value: $(params.cd-git-repo)
+      taskSpec:
+        workspaces:
+          - name: gitssh
+        params:
+          - name: version 
+          - name: cd-git-repo
+        steps:
+          - name: update-deployment
+            image: docker.io/governmentpaas/git-ssh
+            env:
+             - name: "HOME"
+               value: "/tmp"             
+            script: |-   
+              cd /tmp
+              export VERSION=$(params.version)
+              export GIT_SSH_COMMAND="ssh -i /tmp/gitkey -o IdentitiesOnly=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+              cp $(workspaces.gitssh.path)/gitkey .
+              chmod 0400 gitkey
+              git clone $(params.cd-git-repo)
+              cd `echo $(params.cd-git-repo) | sed -e 's/.git//g' -e 's;.*/;;g'`
+              git config --global user.email "tekton@openshift"
+              git config --global user.name "tekton"
+              sed -i -e "s;app.kubernetes.io/version:.*;app.kubernetes.io/version: '$VERSION';g" cicd/argo/deployment.yaml
+              git add -A
+              git commit -m "updating deployments with version $VERSION"
+              git push 2> /dev/null
+
+
+
+
+
+
+
+
+#    - name: deploy
+#      params:
+#        - name: SCRIPT
+#          value: |
+#            oc new-app --image $(params.IMAGE_NAME)
+#      runAfter:
+#        - build
+#      taskRef:
+#        params:
+#          - name: kind
+#            value: task
+#          - name: name
+#            value: openshift-client
+#          - name: namespace
+#            value: openshift-pipelines
+#        resolver: cluster
+#  workspaces:
+#    - name: workspace
+  finally: []
+
+
+
+kind: TaskRun
+metadata:
+  annotations:
+  name: run-push-to-quay
+  namespace: clouds-build
+spec:
+  params:
+    - name: OCP_INTERNAL_IMAGE_NAME
+      value: 'image-registry-openshift-image-registry.svc:5000/clouds-build/clouds-api:latest'
+    - name: QUAY_ORG_REPO
+      value: saa-latam/clouds-api
+    - name: QUAY_IMAGE_TAG
+      value: latest
+  serviceAccountName: pipeline
+  taskRef:
+    kind: Task
+    name: push-to-quay
+  timeout: 1h0m0s

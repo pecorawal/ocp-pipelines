@@ -1,0 +1,34 @@
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  namespace: clouds-build
+  name: taskrun-push-to-quay
+spec:
+  # Referencia a Task que você quer executar
+  taskRef:
+    name: push-to-quay
+
+  # Define os valores para os parâmetros da Task
+  params:
+    - name: OCP_SOURCE_IMAGE
+      description: 'A referência completa da imagem no registro do OpenShift (ex: registry/namespace/imagem:tag)'
+      type: string
+      value: image-registry.openshift-image-registry.svc:5000/clouds-build/clouds-api
+    - name: QUAY_ORG_REPO
+      description: 'A organização e o repositório no Quay.io (ex: saa-latam/clouds-api)'
+      type: string
+      value: saa-latam/clouds-api
+    - name: QUAY_IMAGE_TAG
+      description: A tag para a imagem no Quay.io
+      type: string
+      value: latest
+  # Define o volume para o workspace 'source'
+#  workspaces:
+#    - name: source # Este nome deve corresponder ao nome do workspace na Task
+#      volumeClaimTemplate: # <--- Cria um PVC temporário para esta execução
+#        spec:
+#          accessModes:
+#            - ReadWriteOnce
+#          resources:
+#            requests:
+#              storage: 500Mi # Tamanho do volume para o código-fonte e build

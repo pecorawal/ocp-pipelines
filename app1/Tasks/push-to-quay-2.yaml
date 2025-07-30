@@ -1,0 +1,80 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: push-to-quay
+  namespace: clouds-build
+  annotations:
+    # A anotação para a SCC ainda é importante aqui.
+    # Embora um push puro não exija privilégio, o pod pode precisar.
+    tekton.dev/scc: privileged
+spec:
+  # Define os parâmetros de entrada para a Task
+  params:
+    - name: OCP_SOURCE_IMAGE
+      description: 'A referência completa da imagem no registro do OpenShift (ex: registry/namespace/imagem:tag)'
+      type: string
+    - name: QUAY_ORG_REPO
+      description: 'A organização e o repositório no Quay.io (ex: saa-latam/clouds-api)'
+      type: string
+    - name: QUAY_IMAGE_TAG
+      description: A tag para a imagem no Quay.io
+      type: string
+
+  # Define os volumes que serão anexados ao pod da Task
+  volumes:
+    - name: quay-credentials-volume
+      secret:
+        secretName: quay-robot-creds
+
+  steps:
+    - name: push-image
+      # Use uma imagem com 'podman' e 'oc' instalados
+      image: 'registry.redhat.io/rhel8/podman:latest' 
+      securityContext:
+        privileged: true # Necessário para o pod poder usar o podman
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        # --- Configuração ---
+        SOURCE_IMAGE="$(params.OCP_SOURCE_IMAGE)" 
+        QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)"
+        QUAY_IMAGE_TAG="$(params.QUAY_IMAGE_TAG)"
+
+        # Constrói o caminho completo da imagem de destino
+        DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$QUAY_IMAGE_TAG"
+
+        echo "Tentando empurrar a imagem $SOURCE_IMAGE para o Quay.io como $DESTINATION_IMAGE"
+
+        # 1. Configura as credenciais do Quay.io para o Podman
+        mkdir -p /tekton/home/.docker
+        cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+        chmod 600 /tekton/home/.docker/config.json
+        export DOCKER_CONFIG="/tekton/home/.docker"
+
+        # 2. Faz o login no registro do OpenShift e no Quay.io
+        # O podman usará as credenciais do ServiceAccount para o registro interno
+        # e o secret que acabamos de configurar para o Quay
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+        
+        # Pega o usuário do ServiceAccount a partir do próprio pod
+        OCP_USER=$(podman info --format "{{.Registries.Search[0]}}" | cut -d'/' -f2)
+        
+        podman login -u="$OCP_USER" -p="$TOKEN" --tls-verify=false "image-registry.openshift-image-registry.svc:5000"
+        
+        # O login para o Quay.io usará o secret que foi configurado via DOCKER_CONFIG
+        podman login quay.io
+
+
+
+        # 3. Puxa a imagem do OpenShift, dá uma nova tag e empurra para o Quay.io
+        podman pull "$SOURCE_IMAGE"
+        podman tag "$SOURCE_IMAGE" "$DESTINATION_IMAGE"
+        podman push "$DESTINATION_IMAGE"
+
+        echo "Imagem empurrada com sucesso para o Quay.io!"
+
+      volumeMounts:
+        - name: quay-credentials-volume
+          mountPath: /var/run/secrets/quay-creds
+          readOnly: true

@@ -1,0 +1,127 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: pipeline-test-new
+  namespace: pipeline-ci
+spec:
+  params:
+    - default: ./Dockerfile
+      description: Path do Dockerfile
+      name: dockerfile
+      type: string
+    - default: registry.access.redhat.com/ubi10/ubi-minimal:latest
+      description: Imagem para fazer Build
+      name: build-image
+      type: string
+    - default: https://nexus.ana.gov.br/repository/maven-public
+      description: Repository Mirror Maven
+      name: repository-mirror
+      type: string
+    - default: https://github.com/pecorawal/cloudsapi-4-ocppipelines.git
+      description: URL Git da aplicação
+      name: git-url
+      type: string
+    - name: output-image
+      value: clouds-api:latest
+    - name: git-url
+      value: https://github.com/seu-usuario/seu-repo.git
+    - name: branch
+      value: main
+    - name: QUAY_ORG_REPO
+      value: saa-latam/clouds-api
+    - name: QUAY_IMAGE_TAG
+      value: latest
+
+
+
+
+  tasks:
+    - name: fetch-repository
+      params:
+        - name: URL
+          value: $(params.git-url)
+        - name: REVISION
+          value: $(params.branch)
+        - name: SUBDIRECTORY
+          value: ''
+        - name: DELETE_EXISTING
+          value: 'true'
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: output
+          workspace: workspace
+    - name: build
+      params:
+        - name: IMAGE
+          value: $(params.output-image)
+        - name: TLS_VERIFY
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+        resolver: cluster
+      workspaces:
+        - name: source
+          workspace: workspace
+    - name: build-and-push
+      params:
+        - name: IMAGE
+          value: $(params.output-image)
+        - name: DOCKERFILE
+          value: $(params.dockerfile)
+        - name: CONTEXT
+          value: ./
+        - name: BUILDER_IMAGE
+          value: $(params.build-image)
+      runAfter:
+        - build
+      taskRef:
+        kind: Task
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: workspace
+        - name: dockerconfig
+          workspace: quay-auth
+        - name: workspace
+      steps:
+        - name: read-secret-config
+          image: ubuntu:latest
+          script: |
+            #!/usr/bin/env bash
+            set -eux
+            echo "Conteúdo de config.json:"
+            cat /workspace/workspace/config.json # Acessando o arquivo do secret
+
+
+
+
+
+   
+      workspaces:
+        - name: output
+          workspace: workspace
+        - name: basic-auth
+          workspace: git-auth
+  workspaces:
+    - name: git-auth
+    - name: quay-auth
+    - name: workspace # Este nome deve corresponder ao nome do workspace no seu Pipeline
+      secret: # <--- AQUI VOCÊ ESPECIFICA QUE É UM SECRET
+        secretName: quay-robot-creds # <--- NOME DO SEU SECRET
+  finally: []

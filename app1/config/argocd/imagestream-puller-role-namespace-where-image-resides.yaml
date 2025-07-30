@@ -1,0 +1,9 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: imagestream-puller-role
+  namespace: clouds-build # This Role defines permissions within the clouds-build namespace
+rules:
+  - apiGroups: ["image.openshift.io"]
+    resources: ["imagestreams", "imagestreams/layers", "imagestreams/tags"]
+    verbs: ["get", "list", "watch"] # Sufficient for pulling images

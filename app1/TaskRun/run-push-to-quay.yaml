@@ -1,0 +1,30 @@
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  annotations: {}
+  name: run-push-to-quay
+  namespace: clouds-build
+spec:
+  workspaces:
+    - name: dockerconfig
+      secret: 
+        secretName: 
+          quay-robot-creds    
+    - name: output
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 500Mi
+  params:
+    - name: image
+      value: quay.io/saa-latam/clouds-api
+    - name: commit
+      value: latest
+  serviceAccountName: pipeline
+  taskRef:
+    kind: Task
+    name: push-to-quay
+  timeout: 1h0m0s
