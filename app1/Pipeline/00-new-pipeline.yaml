@@ -59,3 +59,98 @@ spec:
         - name: output
           workspace: git-source
   finally: []
+
+
+
+
+
+
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: ci-pipeline
+  namespace: clouds-build
+spec:
+  params:
+    - name: GIT_REPO_URL
+      type: string
+      description: A URL do repositório Git.
+      default: https://github.com/pecorawal/cloudsapi-4-ocppipelines.git
+    - name: GIT_REVISION
+      type: string
+      description: A branch ou commit Git a ser usado.
+      default: main
+    - name: OCP_APP_NAME
+      type: string
+      description: 'O nome da aplicação/imagem no OpenShift (ex: clouds-api).'
+      default: clouds-api
+    - name: QUAY_ORG_REPO_PATH
+      type: string
+      description: 'O caminho completo do repositório no Quay.io (ex: saa-latam/clouds-api).'
+      default: quay.io/saa-latam/clouds-api
+    - name: RELEASE_VERSION_PREFIX
+      type: string
+      description: 'Prefixo para a tag de release (ex: v1.0.0).'
+      default: v$(date +%Y%m%d%H%M)
+  workspaces:
+    - name: shared-workspace
+      description: Workspace compartilhado para o código-fonte e artefatos de build.
+  tasks:
+    - name: fetch-repo-get-sha
+      taskRef:
+        name: git-clone-and-sha
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: GIT_REPO_URL
+          value: $(params.GIT_REPO_URL)
+        - name: GIT_REVISION
+          value: $(params.GIT_REVISION)
+      results:
+        - name: commit-sha
+          path: .
+    - name: app-build-and-push
+      runAfter:
+        - fetch-repo-get-sha
+      taskRef:
+        name: build-and-push-with-tag
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: OCP_IMAGE_NAME
+          value: $(params.OCP_APP_NAME)
+        - name: QUAY_ORG_REPO
+          value: $(params.QUAY_REPO_FULL_PATH)
+        - name: IMAGE_TAG_SUFFIX
+          value: >-
+            $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
+    - name: add-version-tag-to-git
+      runAfter:
+        - app-build-and-push
+      taskRef:
+        name: git-tag-release
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: COMMIT_SHA
+          value: $(tasks.fetch-repo-get-sha.results.commit-sha)
+        - name: TAG_NAME
+          value: >-
+            $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
+    - name: app-deploy
+      runAfter:
+        - add-version-tag-to-git
+      taskRef:
+        name: app-deploy-task
+      params:
+        - name: IMAGE_TO_DEPLOY
+          value: >-
+            quay.io/$(params.QUAY_REPO_FULL_PATH):$(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
+        - name: DEPLOYMENT_NAME
+          value: $(params.OCP_APP_NAME)
+        - name: NAMESPACE_TARGET
+          value: clouds-build
+  finally: []
