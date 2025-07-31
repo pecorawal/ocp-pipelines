@@ -1,0 +1,74 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-and-push-with-tag
+  namespace: clouds-build
+  annotations:
+    # Necessário para que o buildah possa funcionar corretamente
+    tekton.dev/scc: privileged
+spec:
+  params:
+    - name: OCP_IMAGE_NAME
+      description: O nome base da imagem (ex: 'clouds-api').
+      type: string
+    - name: QUAY_ORG_REPO
+      description: 'A organização e o repositório no Quay.io (ex: ''saa-latam/clouds-api'')'
+      type: string
+    - name: IMAGE_TAG_SUFFIX
+      description: O sufixo da tag da imagem (ex: um SHA de commit).
+      type: string
+
+  workspaces:
+    - name: source
+      description: O workspace onde o código-fonte está localizado.
+  
+  volumes:
+    - name: quay-credentials-volume
+      secret:
+        secretName: quay-robot-creds
+    - name: buildah-storage
+      emptyDir: {}
+
+  steps:
+    - name: build-and-push
+      image: 'registry.redhat.io/rhel8/buildah:latest'
+      securityContext:
+        privileged: true
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        # --- Configuração ---
+        OCP_NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+        OCP_IMAGE_NAME="$(params.OCP_IMAGE_NAME)"
+        FINAL_TAG_NAME="$(params.IMAGE_TAG_SUFFIX)"
+        QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)"
+
+        OPENSHIFT_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}' 2>/dev/null || echo "image-registry.openshift-image-registry.svc:5000")
+
+        SOURCE_IMAGE_FULL_REF="$OPENSHIFT_REGISTRY/$OCP_NAMESPACE/$OCP_IMAGE_NAME:$FINAL_TAG_NAME"
+        DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$FINAL_TAG_NAME"
+
+        echo "Tentando construir e empurrar a imagem com a tag: $FINAL_TAG_NAME"
+        
+        # 1. Constrói a imagem com o Buildah
+        buildah bud --format=docker -t "$SOURCE_IMAGE_FULL_REF" "$(workspaces.source.path)"
+
+        echo "Imagem $SOURCE_IMAGE_FULL_REF construída com sucesso."
+
+        # 2. Configura as credenciais do Quay.io para o Skopeo
+        mkdir -p /tekton/home/.docker
+        cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+        chmod 600 /tekton/home/.docker/config.json
+        export DOCKER_CONFIG="/tekton/home/.docker"
+
+        # 3. Empurra a imagem para o Quay.io
+        skopeo copy "docker://$SOURCE_IMAGE_FULL_REF" "docker://$DESTINATION_IMAGE"
+
+        echo "Imagem empurrada com sucesso para o Quay.io!"
+      volumeMounts:
+        - name: quay-credentials-volume
+          mountPath: /var/run/secrets/quay-creds
+          readOnly: true
+        - name: buildah-storage
+          mountPath: /var/lib/containers/storage

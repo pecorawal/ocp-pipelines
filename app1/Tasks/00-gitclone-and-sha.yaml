@@ -1,0 +1,69 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone-and-sha
+  namespace: clouds-build
+spec:
+  params:
+    - name: GIT_REPO_URL
+      description: A URL do repositório Git a ser clonado.
+      type: string
+    - name: GIT_REVISION
+      description: A branch ou commit a ser clonado.
+      type: string
+  
+  workspaces:
+    - name: source
+      description: O workspace onde o código-fonte será clonado.
+  
+  results:
+    - name: commit-sha
+      description: O SHA completo do commit que foi clonado.
+
+  volumes:
+    - name: git-credentials-volume
+      secret:
+        secretName: git-credentials
+
+  steps:
+    - name: clone-repo
+      image: 'registry.redhat.io/openshift-pipelines/pipelines-git-base:latest'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+        
+        # Configura as credenciais do Git (se o repositório for privado)
+        mkdir -p /tekton/home/.git-credentials
+        cp /var/run/secrets/git-creds/credentials /tekton/home/.git-credentials/credentials
+        chmod 600 /tekton/home/.git-credentials/credentials
+        git config --global credential.helper 'store --file=/tekton/home/.git-credentials/credentials'
+
+        # Clona o repositório no workspace
+        git clone "$(params.GIT_REPO_URL)" "$(workspaces.source.path)"
+        cd "$(workspaces.source.path)"
+
+        # Checkout para a revisão especificada
+        git checkout "$(params.GIT_REVISION)"
+      
+      volumeMounts:
+        - name: git-credentials-volume
+          mountPath: /var/run/secrets/git-creds
+          readOnly: true
+      
+    - name: get-sha
+      image: 'registry.redhat.io/openshift-pipelines/pipelines-git-base:latest'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+        
+        cd "$(workspaces.source.path)"
+        
+        # Obtém o SHA do commit atual
+        SHA=$(git rev-parse HEAD)
+        
+        # Salva o SHA no resultado da Task
+        echo -n "$SHA" > $(results.commit-sha.path)
+      volumeMounts:
+        - name: git-credentials-volume
+          mountPath: /var/run/secrets/git-creds
+          readOnly: true
