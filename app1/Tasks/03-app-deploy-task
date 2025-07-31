@@ -1,0 +1,64 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: app-deploy-task
+  namespace: clouds-build
+spec:
+  params:
+    - name: IMAGE_TO_DEPLOY
+      description: A imagem do container a ser implantada.
+      type: string
+    - name: DEPLOYMENT_NAME
+      description: O nome do Deployment a ser criado/atualizado.
+      type: string
+    - name: NAMESPACE_TARGET
+      description: O namespace onde a aplicação será implantada.
+      type: string
+  steps:
+    - name: deploy-app
+      image: 'quay.io/openshift/origin-cli:latest' # Ou uma imagem com 'oc'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        echo "Implantando $(params.DEPLOYMENT_NAME) no namespace $(params.NAMESPACE_TARGET) com a imagem $(params.IMAGE_TO_DEPLOY)"
+
+        # Exemplo básico: criar/atualizar um deployment e service
+        # Ajuste conforme sua aplicação
+        oc apply -f - <<EOF
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: $(params.DEPLOYMENT_NAME)
+          namespace: $(params.NAMESPACE_TARGET)
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: $(params.DEPLOYMENT_NAME)
+          template:
+            metadata:
+              labels:
+                app: $(params.DEPLOYMENT_NAME)
+            spec:
+              containers:
+                - name: $(params.DEPLOYMENT_NAME)
+                  image: $(params.IMAGE_TO_DEPLOY)
+                  ports:
+                    - containerPort: 8080 # Porta da sua aplicação
+        EOF
+
+        oc apply -f - <<EOF
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: $(params.DEPLOYMENT_NAME)
+          namespace: $(params.NAMESPACE_TARGET)
+        spec:
+          selector:
+            app: $(params.DEPLOYMENT_NAME)
+          ports:
+            - protocol: TCP
+              port: 8080
+              targetPort: 8080
+        EOF
