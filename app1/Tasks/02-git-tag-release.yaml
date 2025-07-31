@@ -1,0 +1,48 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-tag-release
+  namespace: clouds-build
+spec:
+  params:
+    - name: COMMIT_SHA
+      description: O SHA do commit a ser taggeado.
+      type: string
+    - name: TAG_NAME
+      description: O nome da tag de release a ser criada.
+      type: string
+  
+  workspaces:
+    - name: source
+      description: O workspace com o repositório Git.
+  
+  volumes:
+    - name: git-credentials-volume
+      secret:
+        secretName: git-credentials
+
+  steps:
+    - name: tag-and-push
+      image: 'registry.redhat.io/openshift-pipelines/pipelines-git-base:latest'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+        
+        # Configura as credenciais do Git
+        mkdir -p /tekton/home/.git-credentials
+        cp /var/run/secrets/git-creds/credentials /tekton/home/.git-credentials/credentials
+        chmod 600 /tekton/home/.git-credentials/credentials
+        git config --global credential.helper 'store --file=/tekton/home/.git-credentials/credentials'
+
+        cd "$(workspaces.source.path)"
+        
+        # Adiciona a tag no commit especificado
+        git tag "$(params.TAG_NAME)" "$(params.COMMIT_SHA)"
+        
+        # Empurra a tag de volta para o repositório remoto
+        git push origin "$(params.TAG_NAME)"
+        
+      volumeMounts:
+        - name: git-credentials-volume
+          mountPath: /var/run/secrets/git-creds
+          readOnly: true
