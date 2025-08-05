@@ -64,7 +64,6 @@ spec:
 
 
 
-
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -72,85 +71,82 @@ metadata:
   namespace: clouds-build
 spec:
   params:
-    - name: GIT_REPO_URL
-      type: string
+    - default: 'https://github.com/pecorawal/cloudsapi-4-ocppipelines.git'
       description: A URL do repositório Git.
-      default: https://github.com/pecorawal/cloudsapi-4-ocppipelines.git
-    - name: GIT_REVISION
+      name: GIT_REPO_URL
       type: string
+    - default: main
       description: A branch ou commit Git a ser usado.
-      default: main
-    - name: OCP_APP_NAME
+      name: GIT_REVISION
       type: string
+    - default: clouds-api
       description: 'O nome da aplicação/imagem no OpenShift (ex: clouds-api).'
-      default: clouds-api
-    - name: QUAY_ORG_REPO_PATH
+      name: OCP_APP_NAME
       type: string
+    - default: quay.io/saa-latam/clouds-api
       description: 'O caminho completo do repositório no Quay.io (ex: saa-latam/clouds-api).'
-      default: quay.io/saa-latam/clouds-api
-    - name: RELEASE_VERSION_PREFIX
+      name: QUAY_ORG_REPO
       type: string
+    - default: v$(date +%Y%m%d%H%M)
       description: 'Prefixo para a tag de release (ex: v1.0.0).'
-      default: v$(date +%Y%m%d%H%M)
-  workspaces:
-    - name: shared-workspace
-      description: Workspace compartilhado para o código-fonte e artefatos de build.
+      name: RELEASE_VERSION_PREFIX
+      type: string
   tasks:
     - name: fetch-repo-get-sha
-      taskRef:
-        name: git-clone-and-sha
-      workspaces:
-        - name: source
-          workspace: shared-workspace
       params:
         - name: GIT_REPO_URL
           value: $(params.GIT_REPO_URL)
         - name: GIT_REVISION
           value: $(params.GIT_REVISION)
-      results:
-        - name: commit-sha
-          path: .
-    - name: app-build-and-push
-      runAfter:
-        - fetch-repo-get-sha
       taskRef:
-        name: build-and-push-with-tag
+        kind: Task
+        name: git-clone-and-sha
       workspaces:
         - name: source
           workspace: shared-workspace
+    - name: app-build-and-push
       params:
         - name: OCP_IMAGE_NAME
           value: $(params.OCP_APP_NAME)
         - name: QUAY_ORG_REPO
-          value: $(params.QUAY_REPO_FULL_PATH)
+          value: $(params.QUAY_ORG_REPO)
         - name: IMAGE_TAG_SUFFIX
-          value: >-
-            $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
-    - name: add-version-tag-to-git
+          value: $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
       runAfter:
-        - app-build-and-push
+        - fetch-repo-get-sha
       taskRef:
-        name: git-tag-release
+        kind: Task
+        name: build-and-push-with-tag
       workspaces:
         - name: source
           workspace: shared-workspace
+    - name: add-version-tag-to-git
       params:
         - name: COMMIT_SHA
           value: $(tasks.fetch-repo-get-sha.results.commit-sha)
         - name: TAG_NAME
-          value: >-
-            $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
-    - name: app-deploy
+          value: $(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
       runAfter:
-        - add-version-tag-to-git
+        - app-build-and-push
       taskRef:
-        name: app-deploy-task
+        kind: Task
+        name: git-tag-release
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+    - name: app-deploy
       params:
         - name: IMAGE_TO_DEPLOY
-          value: >-
-            quay.io/$(params.QUAY_REPO_FULL_PATH):$(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)
+          value: 'quay.io/$(params.QUAY_ORG_REPO):$(params.RELEASE_VERSION_PREFIX)-$(tasks.fetch-repo-get-sha.results.commit-sha)'
         - name: DEPLOYMENT_NAME
           value: $(params.OCP_APP_NAME)
         - name: NAMESPACE_TARGET
           value: clouds-build
-  finally: []
+      runAfter:
+        - add-version-tag-to-git
+      taskRef:
+        kind: Task
+        name: app-deploy-task
+  workspaces:
+    - description: Workspace compartilhado para o código-fonte e artefatos de build.
+      name: shared-workspace

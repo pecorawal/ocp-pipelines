@@ -47,3 +47,174 @@ spec:
           - name: namespace
             value: openshift-pipelines
         resolver: cluster
+
+    - name: get-sha
+      image: 'registry.redhat.io/openshift-pipelines/pipelines-git-base:latest'
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+        
+        cd "$(workspaces.source.path)"
+        
+        # Obtém o SHA do commit atual
+        SHA=$(git rev-parse HEAD)
+        
+        # Salva o SHA no resultado da Task
+        echo -n "$SHA" > $(results.commit-sha.path)
+      volumeMounts:
+        - name: git-credentials-volume
+          mountPath: /var/run/secrets/git-creds
+          readOnly: true
+
+
+
+
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  annotations:
+    tekton.dev/scc: privileged
+   name: build-and-push-with-tag
+  namespace: clouds-build
+spec:
+  params:
+    - description: 'O nome base da imagem (ex: clouds-api).'
+      name: OCP_IMAGE_NAME
+      type: string
+    - description: 'A organização e o repositório no Quay.io (ex: saa-latam/clouds-api)'
+      name: QUAY_ORG_REPO
+      type: string
+    - description: 'O sufixo da tag da imagem (ex: um SHA de commit). '
+      name: IMAGE_TAG_SUFFIX
+      type: string
+  steps:
+    - computeResources: {}
+      image: 'registry.redhat.io/rhel8/buildah:latest'
+      name: build
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        # --- Configuração ---
+        OCP_NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+        OCP_IMAGE_NAME="$(params.OCP_IMAGE_NAME)"
+        FINAL_TAG_NAME="$(params.IMAGE_TAG_SUFFIX)"
+        QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)"
+
+        OPENSHIFT_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}' 2>/dev/null || echo "image-registry.openshift-image-registry.svc:5000")
+
+        SOURCE_IMAGE_FULL_REF="$OPENSHIFT_REGISTRY/$OCP_NAMESPACE/$OCP_IMAGE_NAME:$FINAL_TAG_NAME"
+        DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$FINAL_TAG_NAME"
+
+        echo "Tentando construir e empurrar a imagem com a tag: $FINAL_TAG_NAME"
+
+        # 1. Constrói a imagem com o Buildah
+        buildah bud --format=docker -t "$SOURCE_IMAGE_FULL_REF" "$(workspaces.source.path)"
+
+        echo "Imagem $SOURCE_IMAGE_FULL_REF construída com sucesso."
+
+        # 2. Configura as credenciais do Quay.io para o Podman
+        mkdir -p /tekton/home/.docker
+        cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+        chmod 600 /tekton/home/.docker/config.json
+        export DOCKER_CONFIG="/tekton/home/.docker"
+
+        # 3. Faz o login no registro do OpenShift e no Quay.io
+        # O podman usará as credenciais do ServiceAccount para o registro interno
+        # e o secret que acabamos de configurar para o Quay
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+        # 4. Pega o usuário do ServiceAccount a partir do próprio pod
+        OCP_USER=$(podman info --format "{{.Registries.Search[0]}}" | cut -d'/' -f2)
+
+        podman login -u="$OCP_USER" -p="$TOKEN" --tls-verify=false "image-registry.openshift-image-registry.svc:5000"
+
+        # 5. O login para o Quay.io usará o secret que foi configurado via DOCKER_CONFIG
+        podman login quay.io
+
+
+
+        # 6. Puxa a imagem do OpenShift, dá uma nova tag e empurra para o Quay.io
+        podman pull "$SOURCE_IMAGE"
+        podman tag "$SOURCE_IMAGE" "$DESTINATION_IMAGE"
+        podman push "$DESTINATION_IMAGE"
+
+        echo "Imagem empurrada com sucesso para o Quay.io!"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - mountPath: /var/run/secrets/quay-creds
+          name: quay-credentials-volume
+          readOnly: true
+        - mountPath: /var/lib/containers/storage
+          name: buildah-storage
+
+
+    - computeResources: {}
+      image: 'registry.redhat.io/rhel8/podman:latest'
+      name: push-image
+      script: |
+        #!/usr/bin/env bash
+        set -eux
+
+        # --- Configuração ---
+        SOURCE_IMAGE="$(params.OCP_SOURCE_IMAGE)" 
+        QUAY_FULL_REPO="$(params.QUAY_ORG_REPO)"
+        QUAY_IMAGE_TAG="$(params.QUAY_IMAGE_TAG)"
+
+        # Constrói o caminho completo da imagem de destino
+        DESTINATION_IMAGE="quay.io/$QUAY_FULL_REPO:$QUAY_IMAGE_TAG"
+
+        echo "Tentando empurrar a imagem $SOURCE_IMAGE para o Quay.io como $DESTINATION_IMAGE"
+
+        # 1. Configura as credenciais do Quay.io para o Podman
+        mkdir -p /tekton/home/.docker
+        cp /var/run/secrets/quay-creds/.dockerconfigjson /tekton/home/.docker/config.json
+        chmod 600 /tekton/home/.docker/config.json
+        export DOCKER_CONFIG="/tekton/home/.docker"
+
+        # 2. Faz o login no registro do OpenShift e no Quay.io
+        # O podman usará as credenciais do ServiceAccount para o registro interno
+        # e o secret que acabamos de configurar para o Quay
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+
+        # Pega o usuário do ServiceAccount a partir do próprio pod
+        OCP_USER=$(podman info --format "{{.Registries.Search[0]}}" | cut -d'/' -f2)
+
+        podman login -u="$OCP_USER" -p="$TOKEN" --tls-verify=false "image-registry.openshift-image-registry.svc:5000"
+
+        # O login para o Quay.io usará o secret que foi configurado via DOCKER_CONFIG
+        podman login quay.io
+
+
+
+        # 3. Puxa a imagem do OpenShift, dá uma nova tag e empurra para o Quay.io
+        podman pull "$SOURCE_IMAGE"
+        podman tag "$SOURCE_IMAGE" "$DESTINATION_IMAGE"
+        podman push "$DESTINATION_IMAGE"
+
+        echo "Imagem empurrada com sucesso para o Quay.io!"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - mountPath: /var/run/secrets/quay-creds
+          name: quay-credentials-volume
+          readOnly: true
+
+  volumes:
+    - name: quay-credentials-volume
+      secret:
+        secretName: quay-robot-creds
+    - emptyDir: {}
+      name: buildah-storage
+  workspaces:
+    - description: O workspace onde o código-fonte está localizado.
+      name: source
+
+
+
+
+
+
+
+
